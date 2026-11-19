@@ -2,7 +2,7 @@
 import { DriveBase, START, prefs, signIn, signOut, signedIn, whoAmI, findBases, clearCache, prepareAuth } from './drive.js';
 import { h, icon, num, round2, money, today, fmtDate, longDate, daysTo, uid, clone, norm, toast, confirmBox, sheet, field, input, segmented, badge, empty } from './ui.js';
 
-const VERSION = '1.5.1';
+const VERSION = '1.6.0';
 const CFG = window.ZINC_CONFIG || {};
 const view = document.getElementById('view');
 /** append sans « null » : ignore les valeurs vides et aplatit les tableaux */
@@ -94,6 +94,12 @@ function authBanner() {
   if (document.querySelector('.banner.auth')) return;
   const b = h('div', { class: 'banner auth' }, icon('alert', 16), h('span', {}, 'Connexion Google expirée.'), h('button', { class: 'link', onclick: async () => { try { await signIn(CFG.clientId, { hint: S.user?.emailAddress }); b.remove(); toast('Reconnecté'); } catch (e) { toast(e.message, 'warn'); } } }, 'Se reconnecter'));
   document.body.append(b);   // au-dessus des feuilles de saisie : on se reconnecte sans perdre ce qui est tapé
+}
+/** Longues listes : 200 lignes, puis « Afficher plus » (affichage rapide sur téléphone) */
+const shownFor = {};
+function more(key, total, rerender) {
+  const n = shownFor[key] || 200;
+  return total > n ? h('button', { class: 'btn wide', onclick: () => { shownFor[key] = n + 200; rerender(); } }, `Afficher plus (${n} sur ${total})`) : null;
 }
 const sectionTitle = (t, extra) => h('div', { class: 'sec' }, h('h2', {}, t), extra || null);
 const row = ({ title, sub, right, onClick, lead }) => h(onClick ? 'button' : 'div', { class: 'row', onclick: onClick }, lead || null,
@@ -232,11 +238,12 @@ function pageDons() {
     h('div', { class: 'stats two' }, h('div', { class: 'stat' }, h('b', {}, money(total)), h('span', {}, `${items.length} don${items.length > 1 ? 's' : ''}`)),
       h('div', { class: 'stat' }, h('b', {}, todo), h('span', {}, 'reçu(s) fiscal(aux) à établir'))),
     searchInput(dQuery, (v) => { dQuery = v; pageDons(); const i = document.querySelector('.search input'); i?.focus(); i?.setSelectionRange(i.value.length, i.value.length); }, 'Rechercher un donateur'),
-    items.length ? h('div', { class: 'card list' }, items.map(d => {
+    items.length ? h('div', { class: 'card list' }, items.slice(0, shownFor.dons || 200).map(d => {
       const r = receiptOf(d);
       return row({ title: donorName(d), sub: [fmtDate(d.date), d.nature && d.nature !== 'numeraire' ? 'en nature' : d.method, getEdition(d.editionId)?.short].filter(Boolean).join(' · '),
         right: h('div', { class: 'amount' }, h('b', {}, money(d.amount)), r ? badge(r.number, 'ok') : receiptEligible(d) ? badge('reçu à faire', 'warn') : null), onClick: () => editDonation(d) });
     })) : empty('Aucun don enregistré pour cette année.', 'heart'),
+    more('dons', items.length, pageDons),
     h('p', { class: 'foot' }, 'Les reçus fiscaux s’établissent depuis l’application sur ordinateur.'),
     fab('Nouveau don', () => editDonation(null)),
   ]);
@@ -302,7 +309,8 @@ function pageAdhesions() {
     h('div', { class: 'chips' }, seasons.slice(0, 5).map(s => h('button', { class: `chip ${s === mSeason ? 'on' : ''}`, onclick: () => { mSeason = s; pageAdhesions(); } }, s))),
     h('div', { class: 'stats two' }, h('div', { class: 'stat' }, h('b', {}, items.length), h('span', {}, `adhérent${items.length > 1 ? 's' : ''}`)), h('div', { class: 'stat' }, h('b', {}, money(total, true)), h('span', {}, 'de cotisations'))),
     searchInput(mQuery, (v) => { mQuery = v; pageAdhesions(); const i = document.querySelector('.search input'); i?.focus(); i?.setSelectionRange(i.value.length, i.value.length); }, 'Rechercher un adhérent'),
-    items.length ? h('div', { class: 'card list' }, items.map(m => row({ lead: avatar(fullName(m)), title: fullName(m), sub: [rateLabel(m.kind), m.city].filter(Boolean).join(' · '), right: h('b', { class: 'amount' }, money(m.amount)), onClick: () => editMember(m) }))) : empty('Aucune adhésion pour cette saison.', 'idcard'),
+    items.length ? h('div', { class: 'card list' }, items.slice(0, shownFor.adh || 200).map(m => row({ lead: avatar(fullName(m)), title: fullName(m), sub: [rateLabel(m.kind), m.city].filter(Boolean).join(' · '), right: h('b', { class: 'amount' }, money(m.amount)), onClick: () => editMember(m) }))) : empty('Aucune adhésion pour cette saison.', 'idcard'),
+    more('adh', items.length, pageAdhesions),
     toRenew.length && mSeason === seasonOf() ? [sectionTitle(`À renouveler (${toRenew.length})`), h('div', { class: 'card list' }, toRenew.slice(0, 60).map(m => row({ lead: avatar(fullName(m), 'muted'), title: fullName(m), sub: `Adhérent ${prevS}`, right: h('span', { class: 'link' }, 'Renouveler'), onClick: () => editMember(null, { ...pick(m), season: seasonOf(), date: today() }) })))] : null,
     fab('Nouvelle adhésion', () => editMember(null)),
   ]);
@@ -405,14 +413,24 @@ function pageReunion(id) {
     saveBar,
   ], { back: 'reunions' });
 }
+/*
+ * Documents joints : le type affiché est déduit de l'extension, jamais de la fiche ni de Google Drive.
+ * Une page web ou une image SVG déguisée ne peut donc pas s'exécuter sur le site (et y lire la connexion Google).
+ */
+const VIEWABLE = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', txt: 'text/plain;charset=utf-8', md: 'text/plain;charset=utf-8' };
 async function openArchive(f) {
   if (S.offline) return toast('Hors connexion', 'warn');
-  const w = window.open('', '_blank');
+  const ext = String(f.file || '').split('.').pop().toLowerCase();
+  const type = VIEWABLE[ext];
+  const w = type ? window.open('', '_blank') : null;
   try {
     toast('Téléchargement…');
     const blob = await S.base.getFile('archives', f.file);
-    const url = URL.createObjectURL(new Blob([blob], { type: f.mime || blob.type }));
-    if (w) w.location = url; else location.href = url;
+    const url = URL.createObjectURL(new Blob([blob], { type: type || 'application/octet-stream' }));
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+    if (type) { if (w) w.location = url; else location.href = url; return; }
+    // autres formats (Word, tableur…) : simple téléchargement, ouvert par l'application du téléphone
+    const a = h('a', { href: url, download: String(f.name || f.file).replace(/[\\/:*?"<>|]/g, '_') }); document.body.append(a); a.click(); a.remove();
   } catch (e) { w?.close(); toast(e.message, 'warn'); }
 }
 
