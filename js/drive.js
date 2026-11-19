@@ -112,13 +112,17 @@ export async function whoAmI() { const j = await api(`${API}/about?fields=user(d
 
 /* ---------- Dossier de la base ---------- */
 /** Dossiers « ZincGrenadine-base » visibles par ce compte (le sien ou partagés avec lui) */
+/** Dossier où l'application sur ordinateur dépose les données d'une simulation */
+export const SIM_DIR = 'Simulation (données fictives)';
 export async function findBases() {
   const list = await listAll(`name='${BASE_NAME}' and mimeType='${FOLDER}' and trashed=false`, 'id,name,modifiedTime,parents,owners(displayName,emailAddress),driveId');
   for (const f of list) {
     const p = f.parents?.[0];
     if (p) try { const j = await api(`${API}/files/${p}?fields=name&${ALL}`); f.parentName = j.name; } catch { f.parentName = ''; }
   }
-  return list;
+  for (const f of list) f.simulation = f.parentName === SIM_DIR;
+  // la vraie base d'abord
+  return list.sort((a, b) => a.simulation - b.simulation);
 }
 
 /* ---------- La base en mémoire ---------- */
@@ -183,7 +187,7 @@ export class DriveBase {
     for (const f of wanted) {
       const col = byId.get(f.parents?.find(p => byId.has(p))); if (!col) continue;
       const id = f.name.slice(0, -5);
-      if (col === 'docs' && !['settings', 'moduleData', 'meta', 'categories'].includes(id)) continue;
+      if (col === 'docs' && !['settings', 'moduleData', 'meta', 'categories', 'simulation'].includes(id)) continue;
       const c = cache.get(f.id);
       if (c && c.mt === f.modifiedTime && c.rec) consider(col, id, f.id, c);
       else todo.push({ f, col, id });
