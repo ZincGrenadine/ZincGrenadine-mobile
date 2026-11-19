@@ -1,5 +1,5 @@
 // Zinc Grenadine mobile — fonctionnement hors connexion de l'interface (les données passent par Google Drive)
-const CACHE = 'zgm-1.5.0';
+const CACHE = 'zgm-1.5.1';
 const SHELL = ['./', 'index.html', 'config.js', 'css/app.css', 'js/app.js', 'js/ui.js', 'js/drive.js', 'manifest.webmanifest',
   'img/logo.png', 'img/icon-192.png', 'img/icon-180.png', 'fonts/amatic-sc-latin-700-normal.woff2', 'fonts/amatic-sc-latin-ext-700-normal.woff2'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
