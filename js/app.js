@@ -2,7 +2,7 @@
 import { DriveBase, START, prefs, signIn, signOut, signedIn, whoAmI, findBases, clearCache, prepareAuth } from './drive.js';
 import { h, icon, num, round2, money, today, fmtDate, longDate, daysTo, uid, clone, norm, toast, confirmBox, sheet, field, input, segmented, badge, empty } from './ui.js';
 
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 const CFG = window.ZINC_CONFIG || {};
 const view = document.getElementById('view');
 /** append sans « null » : ignore les valeurs vides et aplatit les tableaux */
@@ -484,7 +484,7 @@ function editPerson(src, preset = {}) {
 const SIDES = [['produit', 'Produits'], ['charge', 'Charges'], ['cvn-ressource', 'Bénévolat et dons en nature']];
 let bEdition = null;
 function budgetReport(ed) {
-  const lines = (ed.budget || []).map(l => ({ ...l, real: 0 }));
+  const lines = (ed.budget || []).map(l => ({ ...l, real: round2(num(l.realHist)) }));   // réalisé repris du budget de l'AG
   const extra = new Map();
   const sideOf = (a) => a[0] === '6' ? 'charge' : a[0] === '7' ? 'produit' : a.startsWith('86') ? 'cvn-emploi' : a.startsWith('87') ? 'cvn-ressource' : null;
   for (const e of list('entries')) {
