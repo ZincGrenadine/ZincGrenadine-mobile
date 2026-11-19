@@ -2,7 +2,7 @@
 import { DriveBase, START, prefs, signIn, signOut, signedIn, whoAmI, findBases, clearCache, prepareAuth } from './drive.js';
 import { h, icon, num, round2, money, today, fmtDate, longDate, daysTo, uid, clone, norm, toast, confirmBox, sheet, field, input, segmented, badge, empty } from './ui.js';
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const CFG = window.ZINC_CONFIG || {};
 const view = document.getElementById('view');
 /** append sans « null » : ignore les valeurs vides et aplatit les tableaux */
@@ -11,6 +11,7 @@ const S = { base: null, offline: false, user: null, loadedAt: 0, busy: false };
 const db = () => S.base.db;
 const list = (c) => db()[c] || [];
 const settings = () => db().settings || {};
+const isSim = () => !!(S.base && db().simulation?.simulation);
 const COLL = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' });
 
 /* ---------- Données ---------- */
@@ -75,12 +76,14 @@ function shell(title, content, { back, action } = {}) {
   const tab = (location.hash.slice(2).split('/')[0]) || 'accueil';
   const active = MORE.some(([id]) => id === tab) ? 'plus' : tab;
   view.innerHTML = '';
+  document.body.classList.toggle('sim', isSim());
   fill(view,
     h('header', { class: 'top' },
       back ? h('button', { class: 'top-btn', 'aria-label': 'Retour', onclick: () => history.length > 1 ? history.back() : go(back) }, icon('back', 22))
         : tab === 'accueil' ? null : h('img', { class: 'top-mark', src: 'img/icon-192.png', alt: '' }),
       tab === 'accueil' && !back ? h('div', { class: 'top-brand' }, h('img', { class: 'top-logo', src: 'img/logo.png', alt: 'Zinc Grenadine' })) : h('h1', {}, title),
       action || h('button', { class: `top-btn ${S.busy ? 'spin' : ''}`, 'aria-label': 'Actualiser', onclick: () => refresh() }, icon(S.offline ? 'cloud' : 'refresh', 21))),
+    isSim() ? h('div', { class: 'banner sim', role: 'button', onclick: () => go('reglages') }, icon('alert', 16), h('span', {}, h('b', {}, 'SIMULATION'), db().simulation.at ? ` du ${fmtDate(db().simulation.at)}` : '', ' · données fictives, rien n’arrive dans la vraie base')) : null,
     S.offline ? h('div', { class: 'banner warn' }, icon('cloud', 16), h('span', {}, 'Hors connexion : dernières données connues, consultation seulement.'), h('button', { class: 'link', onclick: () => login() }, 'Se connecter')) : null,
     h('main', { class: 'page' }, content),
     h('nav', { class: 'tabs' }, TABS.map(([id, label, ic]) => h('a', { href: '#/' + id, class: `tab ${active === id ? 'on' : ''}` }, icon(ic, 23), h('span', {}, label)))));
@@ -577,7 +580,7 @@ function pageReglages() {
       h('div', { class: 'info' }, h('span', {}, 'Fiches chargées'), h('b', {}, ['clients', 'donations', 'members', 'people', 'meetings', 'entries'].filter(c => b.loaded.has(c)).map(c => `${({ clients: 'contacts', donations: 'dons', members: 'adhésions', people: 'personnes', meetings: 'réunions', entries: 'écritures' })[c]} : ${list(c).length}`).join('\n'))),
       h('div', { class: 'info' }, h('span', {}, 'Nom de ce téléphone'), h('b', {}, b.device))),
     h('div', { class: 'stack' },
-      h('button', { class: 'btn wide', onclick: async () => { prefs.set('baseId', null); location.reload(); } }, 'Changer de dossier'),
+      h('button', { class: `btn wide ${isSim() ? 'primary' : ''}`, onclick: () => { prefs.set('baseId', null); history.replaceState(null, '', location.pathname + '#/accueil'); location.reload(); } }, isSim() ? 'Revenir à la vraie base' : 'Changer de base (vraie base ou simulation)'),
       h('button', { class: 'btn wide', onclick: async () => { await clearCache(); toast('Cache vidé'); await refresh(true); } }, 'Tout retélécharger'),
       h('button', { class: 'btn wide danger-ghost', onclick: async () => { if (!await confirmBox('Se déconnecter et effacer les données gardées sur ce téléphone ?', { ok: 'Se déconnecter', danger: true })) return; signOut(); await clearCache(); prefs.set('baseId', null); prefs.set('user', null); location.reload(); } }, icon('logout', 17), 'Se déconnecter')),
     h('p', { class: 'foot' }, 'Les données restent dans le dossier Google Drive de l’association. Ce téléphone en garde une copie pour l’ouverture rapide et la consultation hors connexion.'),
@@ -648,15 +651,15 @@ async function chooseBase() {
         h('button', { class: 'btn wide', onclick: () => { signOut(); location.reload(); } }, 'Changer de compte'));
       return;
     }
-    screen(h('h2', {}, 'Quel dossier ?'), h('p', {}, 'Plusieurs bases sont visibles avec ce compte :'),
-      h('div', { class: 'card list' }, bases.map(b => row({ lead: icon('cloud', 22), title: b.parentName ? `${b.parentName} › ${b.name}` : b.name, sub: [b.owners?.[0]?.displayName, 'modifié le ' + fmtDate(b.modifiedTime)].filter(Boolean).join(' · '), onClick: () => res(b) }))));
+    screen(h('h2', {}, 'Quelle base ouvrir ?'), h('p', {}, 'Plusieurs bases sont visibles avec ce compte :'),
+      h('div', { class: 'card list' }, bases.map(b => row({ lead: h('span', { class: `lead-ic ${b.simulation ? 'sim' : ''}` }, icon(b.simulation ? 'alert' : 'cloud', 21)), title: b.simulation ? 'Simulation — données fictives' : 'Base de l’association', sub: b.simulation ? 'Pour essayer le site : rien n’arrive dans la vraie base' : [b.parentName ? `dossier « ${b.parentName} »` : '', b.owners?.[0]?.displayName].filter(Boolean).join(' · '), onClick: () => res(b) }))));
   });
 }
 async function boot() {
   try {
     S.user = await whoAmI(); prefs.set('user', S.user);
     let baseId = prefs.get('baseId');
-    if (!baseId) { const b = await chooseBase(); baseId = b.id; prefs.set('baseId', baseId); prefs.set('baseLabel', b.parentName ? `${b.parentName} › ${b.name}` : b.name); }
+    if (!baseId) { const b = await chooseBase(); baseId = b.id; prefs.set('baseId', baseId); prefs.set('baseLabel', b.simulation ? 'Simulation — données fictives' : (b.parentName ? `${b.parentName} › ${b.name}` : b.name)); }
     S.base = new DriveBase(baseId, { user: S.user.displayName || S.user.emailAddress, device: deviceId() });
     const bar = h('div', { class: 'progress' }, h('i', {}));
     const label = h('p', {}, 'Chargement des données…');
