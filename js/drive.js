@@ -100,6 +100,8 @@ async function api(url, { method = 'GET', body, headers = {}, raw = false } = {}
   return raw ? r : r.status === 204 ? null : r.json();
 }
 const q = (s) => encodeURIComponent(s);
+/** Valeur texte dans une requête Drive : barres obliques inverses et apostrophes échappées */
+const qstr = (v) => String(v ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 async function listAll(query, fields = 'id,name,modifiedTime,parents,size,mimeType') {
   const out = []; let page = '';
   do {
@@ -209,7 +211,7 @@ export class DriveBase {
         onProgress(++done, done + todo.length);
       }
     };
-    await Promise.all(Array.from({ length: 8 }, worker));
+    await Promise.all(Array.from({ length: 10 }, worker));
     await cachePut(put);
     for (const c of cols) if (!this.db[c]) this.db[c] = [];
     this.apply(best, ['docs', ...cols]);
@@ -264,7 +266,7 @@ export class DriveBase {
   /** Télécharge un fichier joint (comptes rendus, statuts…) rangé dans « archives » */
   async getFile(sub, name) {
     const parent = await this.folder(sub);
-    const list = await listAll(`'${parent}' in parents and name='${String(name).replace(/'/g, "\\'")}' and trashed=false`);
+    const list = await listAll(`'${parent}' in parents and name='${qstr(name)}' and trashed=false`);
     if (!list.length) throw new Error('Fichier introuvable sur le Drive (pas encore synchronisé ?)');
     const r = await api(`${API}/files/${list[0].id}?alt=media&${ALL}`, { raw: true });
     return r.blob();
